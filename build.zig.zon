@@ -1,0 +1,22 @@
+.{
+    .name = .ido_static_recomp,
+    .version = "1.2.0",
+    .fingerprint = 0x99203188d86f9bb5, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.14.1",
+    .dependencies = .{
+        .upstream = .{
+            .url = "https://github.com/decompals/ido-static-recomp/archive/refs/tags/v1.2.tar.gz",
+            .hash = "N-V-__8AABUhDwKqapzTEUAUfWQ4UKqbvieWuHjVj6Turr29",
+        },
+        .rabbitizer = .{
+            .url = "../rabbitizer",
+            .hash = "rabbitizer-1.13.0-9PAbq3AdAABrgxwPbbDZsXtYa8dVjordc-DlJaMScX64",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "LICENSE",
+        "README.md",
+    },
+}
