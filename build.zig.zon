@@ -9,8 +9,8 @@
             .hash = "N-V-__8AABUhDwKqapzTEUAUfWQ4UKqbvieWuHjVj6Turr29",
         },
         .rabbitizer = .{
-            .url = "git+https://github.com/k64ret/rabbitizer?ref=main#a6adcc94899e397b712cebabc37cb29e0c1fee7e",
-            .hash = "rabbitizer-1.13.0-9PAbqwwdAAB90XetT41vdWX0FBMKOpdM8LvTaFsLcxbW",
+            .url = "git+https://github.com/k64ret/rabbitizer?ref=main#efe8d0e2c42738fe9560bfb99a3c9966865450dc",
+            .hash = "rabbitizer-1.13.0-9PAbq1AoAAAAscjfyRDQXRd3b-gc7WWrikPUu55S-SoH",
         },
     },
     .paths = .{
