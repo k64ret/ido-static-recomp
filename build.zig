@@ -177,36 +177,6 @@ pub fn build(b: *std.Build) void {
     version_info_obj.step.dependOn(&libc_impl_53_obj.step);
     version_info_obj.step.dependOn(&libc_impl_71_obj.step);
 
-    // recomp_cmd.addFileArg(irix_usr_dir.path(b, "bin/cc"));
-    // const gen_cc_src = captureStdOutCFile(recomp_cmd);
-    // const gen_cc_src = b.addInstallFile(
-    //     recomp_cmd.captureStdOut(),
-    //     b.fmt("{s}/cc.c", .{@tagName(version)}),
-    // );
-    // const gen_cc_src = recomp_cmd.captureStdOut();
-
-    // const cc_exe = b.addExecutable(.{
-    //     .name = "cc",
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
-
-    // cc_exe.addIncludePath(ido_root);
-
-    // cc_exe.addObject(version_info_obj);
-    // cc_exe.addObject(libc_impl_71_obj);
-
-    // cc_exe.addCSourceFile(.{
-    //     .file = gen_cc_src,
-    //     .flags = &.{
-    //         "-std=c11",
-    //         "-Os",
-    //         "-fno-strict-aliasing",
-    //     },
-    // });
-
-    // b.installArtifact(cc_exe);
-
     _ = addInstallIdoBin(b, .{
         .name = "cc",
         .target = target,
@@ -218,8 +188,6 @@ pub fn build(b: *std.Build) void {
         .objects = &.{ version_info_obj, libc_impl_71_obj },
     });
 }
-
-fn addLibcImplObject(b: *std.Build) void {}
 
 const IdoBin = struct {
     name: []const u8,
