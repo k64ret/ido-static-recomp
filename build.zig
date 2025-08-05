@@ -144,7 +144,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    libc_impl_71_obj.root_module.addCMacro("IDO53", "");
+    libc_impl_71_obj.root_module.addCMacro("IDO71", "");
 
     const version_info_obj = b.addObject(.{
         .name = "version_info",
@@ -177,23 +177,80 @@ pub fn build(b: *std.Build) void {
     version_info_obj.step.dependOn(&libc_impl_53_obj.step);
     version_info_obj.step.dependOn(&libc_impl_71_obj.step);
 
-    recomp_cmd.addFileArg(irix_usr_dir.path(b, "bin/cc"));
-    const gen_cc_src = captureStdOutCFile(recomp_cmd);
+    // recomp_cmd.addFileArg(irix_usr_dir.path(b, "bin/cc"));
+    // const gen_cc_src = captureStdOutCFile(recomp_cmd);
+    // const gen_cc_src = b.addInstallFile(
+    //     recomp_cmd.captureStdOut(),
+    //     b.fmt("{s}/cc.c", .{@tagName(version)}),
+    // );
+    // const gen_cc_src = recomp_cmd.captureStdOut();
 
-    const cc_exe = b.addExecutable(.{
+    // const cc_exe = b.addExecutable(.{
+    //     .name = "cc",
+    //     .target = target,
+    //     .optimize = optimize,
+    // });
+
+    // cc_exe.addIncludePath(ido_root);
+
+    // cc_exe.addObject(version_info_obj);
+    // cc_exe.addObject(libc_impl_71_obj);
+
+    // cc_exe.addCSourceFile(.{
+    //     .file = gen_cc_src,
+    //     .flags = &.{
+    //         "-std=c11",
+    //         "-Os",
+    //         "-fno-strict-aliasing",
+    //     },
+    // });
+
+    // b.installArtifact(cc_exe);
+
+    _ = addInstallIdoBin(b, .{
         .name = "cc",
         .target = target,
         .optimize = optimize,
-        // .link_libc = true,
+        .recomp = recomp_exe,
+        .recomp_install = &recomp_install_cmd.step,
+        .bin = irix_usr_dir.path(b, "bin/cc"),
+        .include = ido_root,
+        .objects = &.{ version_info_obj, libc_impl_71_obj },
+    });
+}
+
+fn addLibcImplObject(b: *std.Build) void {}
+
+const IdoBin = struct {
+    name: []const u8,
+    target: ?std.Build.ResolvedTarget = null,
+    optimize: std.builtin.OptimizeMode = .Debug,
+    recomp: *std.Build.Step.Compile,
+    recomp_install: *std.Build.Step,
+    bin: std.Build.LazyPath,
+    include: std.Build.LazyPath,
+    objects: []const *std.Build.Step.Compile,
+};
+
+fn addInstallIdoBin(b: *std.Build, source: IdoBin) *std.Build.Step.Compile {
+    const recomp_cmd = b.addRunArtifact(source.recomp);
+    recomp_cmd.step.dependOn(source.recomp_install);
+
+    recomp_cmd.addFileArg(source.bin);
+    const gen_src = captureStdOutCFile(recomp_cmd);
+
+    const exe = b.addExecutable(.{
+        .name = source.name,
+        .target = source.target,
+        .optimize = source.optimize,
     });
 
-    cc_exe.addIncludePath(ido_root);
+    exe.addIncludePath(source.include);
 
-    cc_exe.addObject(version_info_obj);
-    cc_exe.addObject(libc_impl_71_obj);
+    for (source.objects) |obj| exe.addObject(obj);
 
-    cc_exe.addCSourceFile(.{
-        .file = gen_cc_src,
+    exe.addCSourceFile(.{
+        .file = gen_src,
         .flags = &.{
             "-std=c11",
             "-Os",
@@ -201,7 +258,9 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    b.installArtifact(cc_exe);
+    b.installArtifact(exe);
+
+    return exe;
 }
 
 const ido_71_tc = [_][]const u8{
