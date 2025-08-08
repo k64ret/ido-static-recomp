@@ -1,20 +1,5 @@
 const std = @import("std");
 
-fn captureStdOutCFile(run: *std.Build.Step.Run) std.Build.LazyPath {
-    std.debug.assert(run.stdio != .inherit);
-
-    if (run.captured_stdout) |output| return .{ .generated = .{ .file = &output.generated_file } };
-
-    const output = run.step.owner.allocator.create(std.Build.Step.Run.Output) catch @panic("OOM");
-    output.* = .{
-        .prefix = "",
-        .basename = "stdout.c",
-        .generated_file = .{ .step = &run.step },
-    };
-    run.captured_stdout = output;
-    return .{ .generated = .{ .file = &output.generated_file } };
-}
-
 // 1. Build recomp binary
 //    `make RELEASE=1 setup`
 //    `make -C $(RABBITIZER) static CC=gcc CXX=g++ DEBUG=0`
@@ -24,6 +9,8 @@ fn captureStdOutCFile(run: *std.Build.Step.Run) std.Build.LazyPath {
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    var bins: std.BoundedArray([]const u8, 16) = .{};
 
     const recomp_step = b.step("recomp", "Run the `recomp.elf` executable");
 
@@ -44,6 +31,11 @@ pub fn build(b: *std.Build) void {
         "Enable address and undefined behavior sanitizers (default: false)",
     ) orelse false;
     _ = asan;
+
+    switch (version) {
+        .@"5.3" => bins.appendSliceAssumeCapacity(&ido_53_tc),
+        .@"7.1" => bins.appendSliceAssumeCapacity(&ido_71_tc),
+    }
 
     const ido_version_str: []const u8 = switch (version) {
         .@"5.3" => "53",
@@ -66,15 +58,26 @@ pub fn build(b: *std.Build) void {
 
     const recomp_exe = b.addExecutable(.{
         .name = "recomp.elf",
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .link_libcpp = true,
+        }),
     });
 
-    // std.debug.print("Rabbitizer include directory: {s}\nNew line starts here...\n", .{rabbitizer_artifact.getEmittedIncludeTree().getDisplayName()});
     recomp_exe.addIncludePath(rabbitizer_artifact.getEmittedIncludeTree());
 
     recomp_exe.addCSourceFile(.{
         .file = ido_dep.path("recomp.cpp"),
+        .flags = &.{
+            "-std=c++17",
+            "-Wall",
+            "-Wextra",
+            "-Wpedantic",
+            "-Wshadow",
+            "-lm",
+            "-Wl,-export-dynamic",
+        },
     });
 
     recomp_exe.linkLibrary(rabbitizer_artifact);
@@ -82,16 +85,15 @@ pub fn build(b: *std.Build) void {
     const recomp_install_cmd = b.addInstallArtifact(recomp_exe, .{});
     b.getInstallStep().dependOn(&recomp_install_cmd.step);
 
-    const recomp_cmd = b.addRunArtifact(recomp_exe);
-    recomp_cmd.step.dependOn(&recomp_install_cmd.step);
+    const recomp_run = b.addRunArtifact(recomp_exe);
+    recomp_run.step.dependOn(&recomp_install_cmd.step);
 
-    if (b.args) |args| recomp_cmd.addArgs(args);
+    if (b.args) |args| recomp_run.addArgs(args);
 
-    recomp_step.dependOn(&recomp_cmd.step);
+    recomp_step.dependOn(&recomp_run.step);
 
     const libc_impl_53_obj = b.addObject(.{
         .name = "libc_impl_53",
-        .link_libc = true,
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
@@ -177,36 +179,43 @@ pub fn build(b: *std.Build) void {
     version_info_obj.step.dependOn(&libc_impl_53_obj.step);
     version_info_obj.step.dependOn(&libc_impl_71_obj.step);
 
-    _ = addInstallIdoBin(b, .{
-        .name = "cc",
-        .target = target,
-        .optimize = optimize,
-        .recomp = recomp_exe,
-        .recomp_install = &recomp_install_cmd.step,
-        .bin = irix_usr_dir.path(b, "bin/cc"),
-        .include = ido_root,
-        .objects = &.{ version_info_obj, libc_impl_71_obj },
-    });
+    const write_files = b.addWriteFiles();
+
+    for (bins.constSlice()) |bin| {
+        const recomp_cmd = b.addRunArtifact(recomp_exe);
+        recomp_cmd.step.dependOn(&recomp_install_cmd.step);
+
+        recomp_cmd.addFileArg(irix_usr_dir.path(b, bin));
+
+        var it = std.mem.splitBackwardsScalar(u8, bin, '/');
+        const name = it.first();
+
+        const gen_src = write_files.addCopyFile(
+            recomp_cmd.captureStdOut(),
+            b.fmt("{s}.c", .{name}),
+        );
+
+        _ = addInstallIdoBin(b, .{
+            .name = name,
+            .target = target,
+            .optimize = optimize,
+            .c_file = gen_src,
+            .include = ido_root,
+            .objects = &.{ version_info_obj, libc_impl_71_obj },
+        });
+    }
 }
 
 const IdoBin = struct {
     name: []const u8,
     target: ?std.Build.ResolvedTarget = null,
     optimize: std.builtin.OptimizeMode = .Debug,
-    recomp: *std.Build.Step.Compile,
-    recomp_install: *std.Build.Step,
-    bin: std.Build.LazyPath,
+    c_file: std.Build.LazyPath,
     include: std.Build.LazyPath,
     objects: []const *std.Build.Step.Compile,
 };
 
 fn addInstallIdoBin(b: *std.Build, source: IdoBin) *std.Build.Step.Compile {
-    const recomp_cmd = b.addRunArtifact(source.recomp);
-    recomp_cmd.step.dependOn(source.recomp_install);
-
-    recomp_cmd.addFileArg(source.bin);
-    const gen_src = captureStdOutCFile(recomp_cmd);
-
     const exe = b.addExecutable(.{
         .name = source.name,
         .target = source.target,
@@ -218,7 +227,7 @@ fn addInstallIdoBin(b: *std.Build, source: IdoBin) *std.Build.Step.Compile {
     for (source.objects) |obj| exe.addObject(obj);
 
     exe.addCSourceFile(.{
-        .file = gen_src,
+        .file = source.c_file,
         .flags = &.{
             "-std=c11",
             "-Os",
@@ -226,27 +235,28 @@ fn addInstallIdoBin(b: *std.Build, source: IdoBin) *std.Build.Step.Compile {
         },
     });
 
-    b.installArtifact(exe);
+    const exe_install_cmd = b.addInstallArtifact(exe, .{});
+    b.getInstallStep().dependOn(&exe_install_cmd.step);
 
     return exe;
 }
 
 const ido_71_tc = [_][]const u8{
     // `copt` currently does not build
-    "cc",
-    "acpp",
-    "as0",
-    "as1",
-    "cfe",
-    "ugen",
-    "ujoin",
-    "uld",
-    "umerge",
-    "uopt",
-    "usplit",
-    "upas",
-    "edgcpfe",
-    "NCC",
+    "bin/cc",
+    "lib/acpp",
+    "lib/as0",
+    "lib/as1",
+    "lib/cfe",
+    "lib/ugen",
+    "lib/ujoin",
+    "lib/uld",
+    "lib/umerge",
+    "lib/uopt",
+    "lib/usplit",
+    "lib/upas",
+    "lib/DCC/edgcpfe",
+    // "NCC",
 };
 
 const ido_71_libs = [_][]const u8{
@@ -254,30 +264,30 @@ const ido_71_libs = [_][]const u8{
 };
 
 const ido_53_tc = [_][]const u8{
-    "cc",
-    "strip",
-    "acpp",
-    "as0",
-    "as1",
-    "cfe",
-    "copt",
-    "ugen",
-    "ujoin",
-    "uld",
-    "umerge",
-    "uopt",
-    "usplit",
-    "ld",
-    "upas",
-    "c++filt",
+    "bin/cc",
+    "bin/strip",
+    "lib/acpp",
+    "lib/as0",
+    "lib/as1",
+    "lib/cfe",
+    "lib/copt",
+    "lib/ugen",
+    "lib/ujoin",
+    "lib/uld",
+    "lib/umerge",
+    "lib/uopt",
+    "lib/usplit",
+    "lib/ld",
+    "lib/upas",
+    "lib/c++/c++filt",
 };
 
 const ido_53_libs = [_][]const u8{
-    "crt1.o",
-    "crtn.o",
-    "libc.so",
-    "libc.so.1",
-    "libexc.so",
-    "libgen.so",
-    "libm.so",
+    "lib/crt1.o",
+    "lib/crtn.o",
+    "lib/libc.so",
+    "lib/libc.so.1",
+    "lib/libexc.so",
+    "lib/libgen.so",
+    "lib/libm.so",
 };
