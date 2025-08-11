@@ -4,13 +4,21 @@
     .fingerprint = 0x99203188d86f9bb5, // Changing this has security and trust implications.
     .minimum_zig_version = "0.14.1",
     .dependencies = .{
+        // .upstream = .{
+        //     .url = "https://github.com/decompals/ido-static-recomp/archive/refs/tags/v1.2.tar.gz",
+        //     .hash = "N-V-__8AABUhDwKqapzTEUAUfWQ4UKqbvieWuHjVj6Turr29",
+        // },
+        // .rabbitizer = .{
+        //     .url = "git+https://github.com/k64ret/rabbitizer?ref=main#efe8d0e2c42738fe9560bfb99a3c9966865450dc",
+        //     .hash = "rabbitizer-1.13.0-9PAbq1AoAAAAscjfyRDQXRd3b-gc7WWrikPUu55S-SoH",
+        // },
         .upstream = .{
-            .url = "https://github.com/decompals/ido-static-recomp/archive/refs/tags/v1.2.tar.gz",
-            .hash = "N-V-__8AABUhDwKqapzTEUAUfWQ4UKqbvieWuHjVj6Turr29",
+            .url = "git+https://github.com/decompals/ido-static-recomp?ref=main#d5aec59932034b8a20f23f471297a55c45dcbc45",
+            .hash = "N-V-__8AALUwDwLvuLq8KYTqkkKz418V_HiuwjMmL7aduGQ8",
         },
         .rabbitizer = .{
-            .url = "git+https://github.com/k64ret/rabbitizer?ref=main#efe8d0e2c42738fe9560bfb99a3c9966865450dc",
-            .hash = "rabbitizer-1.13.0-9PAbq1AoAAAAscjfyRDQXRd3b-gc7WWrikPUu55S-SoH",
+            .url = "../rabbitizer",
+            .hash = "rabbitizer-1.13.0-9PAbq641AAAzt5TTHfrvieKvPmQv6JiXTOC597nQ-mfu",
         },
     },
     .paths = .{

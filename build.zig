@@ -31,6 +31,17 @@ pub fn build(b: *std.Build) void {
         "Enable address and undefined behavior sanitizers (default: false)",
     ) orelse false;
     _ = asan;
+    const full_traceback = b.option(
+        bool,
+        "full-traceback",
+        "Full traceback, including names not exported (default: false)",
+    ) orelse false;
+    const trace = b.option(bool, "trace", "(default: false)") orelse false;
+    const dump_instructions = b.option(
+        bool,
+        "dump-instructions",
+        "Dump actual disassembly when dumping C code (default: false)",
+    ) orelse false;
 
     switch (version) {
         .@"5.3" => bins.appendSliceAssumeCapacity(&ido_53_tc),
@@ -65,6 +76,18 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    if (full_traceback) {
+        recomp_exe.root_module.addCMacro("FULL_TRACEBACK", "1");
+    }
+
+    if (trace) {
+        recomp_exe.root_module.addCMacro("TRACE", "1");
+    }
+
+    if (dump_instructions) {
+        recomp_exe.root_module.addCMacro("DUMP_INSTRUCTIONS", "1");
+    }
+
     recomp_exe.addIncludePath(rabbitizer_artifact.getEmittedIncludeTree());
 
     recomp_exe.addCSourceFile(.{
@@ -75,12 +98,12 @@ pub fn build(b: *std.Build) void {
             "-Wextra",
             "-Wpedantic",
             "-Wshadow",
-            "-lm",
             "-Wl,-export-dynamic",
         },
     });
 
     recomp_exe.linkLibrary(rabbitizer_artifact);
+    recomp_exe.linkSystemLibrary("m");
 
     const recomp_install_cmd = b.addInstallArtifact(recomp_exe, .{});
     b.getInstallStep().dependOn(&recomp_install_cmd.step);
@@ -179,7 +202,17 @@ pub fn build(b: *std.Build) void {
     version_info_obj.step.dependOn(&libc_impl_53_obj.step);
     version_info_obj.step.dependOn(&libc_impl_71_obj.step);
 
-    const write_files = b.addWriteFiles();
+    b.installDirectory(.{
+        .source_dir = irix_usr_dir.path(b, "lib"),
+        .install_dir = .bin,
+        .install_subdir = "",
+        .include_extensions = &.{
+            ".cc",
+            // ".o",
+            // ".so",
+            // ".so.1",
+        },
+    });
 
     for (bins.constSlice()) |bin| {
         const recomp_cmd = b.addRunArtifact(recomp_exe);
@@ -190,6 +223,7 @@ pub fn build(b: *std.Build) void {
         var it = std.mem.splitBackwardsScalar(u8, bin, '/');
         const name = it.first();
 
+        const write_files = b.addWriteFiles();
         const gen_src = write_files.addCopyFile(
             recomp_cmd.captureStdOut(),
             b.fmt("{s}.c", .{name}),
@@ -201,7 +235,10 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .c_file = gen_src,
             .include = ido_root,
-            .objects = &.{ version_info_obj, libc_impl_71_obj },
+            .objects = &.{ version_info_obj, switch (version) {
+                .@"5.3" => libc_impl_53_obj,
+                .@"7.1" => if (std.mem.eql(u8, name, "edgcpfe")) libc_impl_53_obj else libc_impl_71_obj,
+            } },
         });
     }
 }
@@ -216,24 +253,42 @@ const IdoBin = struct {
 };
 
 fn addInstallIdoBin(b: *std.Build, source: IdoBin) *std.Build.Step.Compile {
-    const exe = b.addExecutable(.{
+    const obj = b.addObject(.{
         .name = source.name,
-        .target = source.target,
-        .optimize = source.optimize,
+        .root_module = b.createModule(.{
+            .target = source.target,
+            .optimize = source.optimize,
+            .link_libc = true,
+        }),
     });
 
-    exe.addIncludePath(source.include);
+    obj.addIncludePath(source.include);
 
-    for (source.objects) |obj| exe.addObject(obj);
-
-    exe.addCSourceFile(.{
+    obj.addCSourceFile(.{
         .file = source.c_file,
         .flags = &.{
-            "-std=c11",
+            // "-std=c11",
+            "-std=gnu11",
             "-Os",
             "-fno-strict-aliasing",
         },
     });
+
+    const exe = b.addExecutable(.{
+        .name = source.name,
+        .root_module = b.createModule(.{
+            .target = source.target,
+            .optimize = source.optimize,
+            .strip = true,
+        }),
+    });
+
+    exe.addIncludePath(source.include);
+
+    exe.addObject(obj);
+    for (source.objects) |o| exe.addObject(o);
+
+    exe.linkSystemLibrary("m");
 
     const exe_install_cmd = b.addInstallArtifact(exe, .{});
     b.getInstallStep().dependOn(&exe_install_cmd.step);
