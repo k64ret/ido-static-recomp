@@ -8,17 +8,13 @@
         //     .url = "https://github.com/decompals/ido-static-recomp/archive/refs/tags/v1.2.tar.gz",
         //     .hash = "N-V-__8AABUhDwKqapzTEUAUfWQ4UKqbvieWuHjVj6Turr29",
         // },
-        // .rabbitizer = .{
-        //     .url = "git+https://github.com/k64ret/rabbitizer?ref=main#efe8d0e2c42738fe9560bfb99a3c9966865450dc",
-        //     .hash = "rabbitizer-1.13.0-9PAbq1AoAAAAscjfyRDQXRd3b-gc7WWrikPUu55S-SoH",
-        // },
         .upstream = .{
             .url = "git+https://github.com/decompals/ido-static-recomp?ref=main#d5aec59932034b8a20f23f471297a55c45dcbc45",
             .hash = "N-V-__8AALUwDwLvuLq8KYTqkkKz418V_HiuwjMmL7aduGQ8",
         },
         .rabbitizer = .{
-            .url = "../rabbitizer",
-            .hash = "rabbitizer-1.13.0-9PAbq641AAAzt5TTHfrvieKvPmQv6JiXTOC597nQ-mfu",
+            .url = "https://github.com/k64ret/rabbitizer/archive/refs/tags/1.3.0.tar.gz",
+            .hash = "rabbitizer-1.3.0-9PAbq2YlAAD6AD1_Ht54RcJljCk9tHd6vA3gMgAE-Lcc",
         },
     },
     .paths = .{

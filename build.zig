@@ -12,7 +12,7 @@ pub fn build(b: *std.Build) void {
 
     var bins: std.BoundedArray([]const u8, 16) = .{};
 
-    const recomp_step = b.step("recomp", "Run the `recomp.elf` executable");
+    const recomp_step = b.step("recomp", "Build and run `recomp.elf`");
 
     const version = b.option(
         enum { @"5.3", @"7.1" },
@@ -219,6 +219,7 @@ pub fn build(b: *std.Build) void {
         recomp_cmd.step.dependOn(&recomp_install_cmd.step);
 
         recomp_cmd.addFileArg(irix_usr_dir.path(b, bin));
+        recomp_cmd.max_stdio_size = 12 * 1024 * 1024; // 12 MiB
 
         var it = std.mem.splitBackwardsScalar(u8, bin, '/');
         const name = it.first();
@@ -229,17 +230,32 @@ pub fn build(b: *std.Build) void {
             b.fmt("{s}.c", .{name}),
         );
 
-        _ = addInstallIdoBin(b, .{
+        const run_step = b.step(
+            name,
+            b.fmt("Build and run `{s}`", .{name}),
+        );
+
+        const ido_bin = addInstallIdoBin(b, .{
             .name = name,
             .target = target,
             .optimize = optimize,
             .c_file = gen_src,
             .include = ido_root,
-            .objects = &.{ version_info_obj, switch (version) {
-                .@"5.3" => libc_impl_53_obj,
-                .@"7.1" => if (std.mem.eql(u8, name, "edgcpfe")) libc_impl_53_obj else libc_impl_71_obj,
-            } },
+            .objects = &.{
+                version_info_obj,
+                switch (version) {
+                    .@"5.3" => libc_impl_53_obj,
+                    .@"7.1" => if (std.mem.eql(u8, name, "edgcpfe")) libc_impl_53_obj else libc_impl_71_obj,
+                },
+            },
         });
+
+        const run_cmd = b.addRunArtifact(ido_bin);
+        run_cmd.step.dependOn(b.getInstallStep());
+
+        if (b.args) |args| run_cmd.addArgs(args);
+
+        run_step.dependOn(&run_cmd.step);
     }
 }
 
@@ -253,27 +269,6 @@ const IdoBin = struct {
 };
 
 fn addInstallIdoBin(b: *std.Build, source: IdoBin) *std.Build.Step.Compile {
-    const obj = b.addObject(.{
-        .name = source.name,
-        .root_module = b.createModule(.{
-            .target = source.target,
-            .optimize = source.optimize,
-            .link_libc = true,
-        }),
-    });
-
-    obj.addIncludePath(source.include);
-
-    obj.addCSourceFile(.{
-        .file = source.c_file,
-        .flags = &.{
-            // "-std=c11",
-            "-std=gnu11",
-            "-Os",
-            "-fno-strict-aliasing",
-        },
-    });
-
     const exe = b.addExecutable(.{
         .name = source.name,
         .root_module = b.createModule(.{
@@ -285,13 +280,22 @@ fn addInstallIdoBin(b: *std.Build, source: IdoBin) *std.Build.Step.Compile {
 
     exe.addIncludePath(source.include);
 
-    exe.addObject(obj);
+    exe.addCSourceFile(.{
+        .file = source.c_file,
+        .flags = &.{
+            // "-std=c11",
+            "-std=gnu11",
+            "-Os",
+            "-fno-strict-aliasing",
+        },
+    });
+
     for (source.objects) |o| exe.addObject(o);
 
     exe.linkSystemLibrary("m");
 
-    const exe_install_cmd = b.addInstallArtifact(exe, .{});
-    b.getInstallStep().dependOn(&exe_install_cmd.step);
+    const install_bin_cmd = b.addInstallArtifact(exe, .{});
+    b.getInstallStep().dependOn(&install_bin_cmd.step);
 
     return exe;
 }
