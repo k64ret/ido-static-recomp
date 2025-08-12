@@ -22,7 +22,7 @@ jobs:
           version: ${{matrix.zig-version}}
       # Windows-only: toggle the same registry keys that Settings -> Developer Mode would
       - name: Enable Windows Developer Mode
-        if: matrix.os == 'windows'
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $k = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock'
