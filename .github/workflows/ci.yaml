@@ -20,6 +20,16 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: ${{matrix.zig-version}}
+      # Windows-only: toggle the same registry keys that Settings -> Developer Mode would
+      - name: Enable Windows Developer Mode
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $k = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock'
+          if (-not (Test-Path $k)) { New-Item -Path $k -Force | Out-Null }
+          New-ItemProperty -Path $k -Name 'AllowDevelopmentWithoutDevLicense' -PropertyType DWord -Value 1 -Force | Out-Null
+          # New-ItemProperty -Path $k -Name 'AllowAllTrustedApps' -PropertyType DWord -Value 1 -Force | Out-Null
+          reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
       - name: Build
-        run: zig build --summary all
+        run: zig build --verbose --summary all
       
