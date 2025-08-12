@@ -11,8 +11,10 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     var bins: std.BoundedArray([]const u8, 16) = .{};
+    var recomp_exe_flags: std.BoundedArray([]const u8, 32) = .{};
+    var libc_impl_flags: std.BoundedArray([]const u8, 32) = .{};
 
-    const recomp_step = b.step("recomp", "Build and run `recomp.elf`");
+    const recomp_step = b.step("recomp", "Build and run `recomp`");
 
     const version = b.option(
         enum { @"5.3", @"7.1" },
@@ -30,7 +32,6 @@ pub fn build(b: *std.Build) void {
         "asan",
         "Enable address and undefined behavior sanitizers (default: false)",
     ) orelse false;
-    _ = asan;
     const full_traceback = b.option(
         bool,
         "full-traceback",
@@ -68,7 +69,7 @@ pub fn build(b: *std.Build) void {
     const rabbitizer_artifact = rabbitizer_dep.artifact("rabbitizerpp");
 
     const recomp_exe = b.addExecutable(.{
-        .name = "recomp.elf",
+        .name = "recomp",
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
@@ -90,16 +91,35 @@ pub fn build(b: *std.Build) void {
 
     recomp_exe.addIncludePath(rabbitizer_artifact.getEmittedIncludeTree());
 
+    recomp_exe_flags.appendSliceAssumeCapacity(&cpp_flags);
+    recomp_exe_flags.appendSliceAssumeCapacity(&warnings);
+
+    recomp_exe_flags.appendSliceAssumeCapacity(switch (optimize) {
+        .Debug => &debug_opt_flags,
+        else => &release_opt_flags,
+    });
+
+    if (asan) {
+        recomp_exe_flags.appendSliceAssumeCapacity(&asan_flags);
+    }
+
+    switch (target.result.os.tag) {
+        .freebsd => {
+            recomp_exe.linkSystemLibrary("execinfo");
+        },
+        .linux => {
+            recomp_exe_flags.appendAssumeCapacity("-Wl,-export-dynamic");
+        },
+        .windows => {
+            recomp_exe_flags.appendAssumeCapacity("-static");
+            recomp_exe.linkSystemLibrary("dl");
+        },
+        else => {},
+    }
+
     recomp_exe.addCSourceFile(.{
         .file = ido_dep.path("recomp.cpp"),
-        .flags = &.{
-            "-std=c++17",
-            "-Wall",
-            "-Wextra",
-            "-Wpedantic",
-            "-Wshadow",
-            "-Wl,-export-dynamic",
-        },
+        .flags = recomp_exe_flags.constSlice(),
     });
 
     recomp_exe.linkLibrary(rabbitizer_artifact);
@@ -115,6 +135,18 @@ pub fn build(b: *std.Build) void {
 
     recomp_step.dependOn(&recomp_run.step);
 
+    libc_impl_flags.appendSliceAssumeCapacity(&c_flags);
+    libc_impl_flags.appendSliceAssumeCapacity(&warnings);
+    libc_impl_flags.appendSliceAssumeCapacity(&.{
+        "-Wno-unused-parameter",
+        "-Wno-deprecated-declarations",
+    });
+
+    libc_impl_flags.appendSliceAssumeCapacity(switch (optimize) {
+        .Debug => &debug_opt_flags,
+        else => &release_opt_flags,
+    });
+
     const libc_impl_53_obj = b.addObject(.{
         .name = "libc_impl_53",
         .root_module = b.createModule(.{
@@ -128,17 +160,7 @@ pub fn build(b: *std.Build) void {
 
     libc_impl_53_obj.addCSourceFile(.{
         .file = ido_root.path(b, "libc_impl.c"),
-        .flags = &.{
-            "-std=c11",
-            "-Os",
-            "-fno-strict-aliasing",
-            "-Wall",
-            "-Wextra",
-            "-Wpedantic",
-            "-Wshadow",
-            "-Wno-unused-parameter",
-            "-Wno-deprecated-declarations",
-        },
+        .flags = libc_impl_flags.constSlice(),
     });
 
     libc_impl_53_obj.root_module.addCMacro("IDO53", "");
@@ -156,17 +178,7 @@ pub fn build(b: *std.Build) void {
 
     libc_impl_71_obj.addCSourceFile(.{
         .file = ido_root.path(b, "libc_impl.c"),
-        .flags = &.{
-            "-std=c11",
-            "-Os",
-            "-fno-strict-aliasing",
-            "-Wall",
-            "-Wextra",
-            "-Wpedantic",
-            "-Wshadow",
-            "-Wno-unused-parameter",
-            "-Wno-deprecated-declarations",
-        },
+        .flags = libc_impl_flags.constSlice(),
     });
 
     libc_impl_71_obj.root_module.addCMacro("IDO71", "");
@@ -245,7 +257,10 @@ pub fn build(b: *std.Build) void {
                 version_info_obj,
                 switch (version) {
                     .@"5.3" => libc_impl_53_obj,
-                    .@"7.1" => if (std.mem.eql(u8, name, "edgcpfe")) libc_impl_53_obj else libc_impl_71_obj,
+                    .@"7.1" => if (std.mem.eql(u8, name, "edgcpfe"))
+                        libc_impl_53_obj
+                    else
+                        libc_impl_71_obj,
                 },
             },
         });
@@ -349,4 +364,37 @@ const ido_53_libs = [_][]const u8{
     "lib/libexc.so",
     "lib/libgen.so",
     "lib/libm.so",
+};
+
+const asan_flags = [_][]const u8{
+    "-fsanitize=address",
+    "-fsanitize=pointer-compare",
+    "-fsanitize=pointer-subtract",
+    "-fsanitize=undefined",
+    "-fno-sanitize-recover=all",
+};
+
+const debug_opt_flags = [_][]const u8{
+    "-O0",
+    "-ggdb3",
+};
+
+const release_opt_flags = [_][]const u8{
+    "-Os",
+};
+
+const c_flags = [_][]const u8{
+    "-std=c11",
+    "-fno-strict-aliasing",
+};
+
+const warnings = [_][]const u8{
+    "-Wall",
+    "-Wextra",
+    "-Wpedantic",
+    "-Wshadow",
+};
+
+const cpp_flags = [_][]const u8{
+    "-std=c++17",
 };
