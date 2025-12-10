@@ -10,9 +10,13 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    var bins: std.BoundedArray([]const u8, 16) = .{};
-    var recomp_exe_flags: std.BoundedArray([]const u8, 32) = .{};
-    var libc_impl_flags: std.BoundedArray([]const u8, 32) = .{};
+    var bins_buf: [16][]const u8 = undefined;
+    var recomp_exe_flags_buf: [32][]const u8 = undefined;
+    var libc_impl_flags_buf: [32][]const u8 = undefined;
+
+    var bins: std.ArrayList([]const u8) = .initBuffer(&bins_buf);
+    var recomp_exe_flags: std.ArrayList([]const u8) = .initBuffer(&recomp_exe_flags_buf);
+    var libc_impl_flags: std.ArrayList([]const u8) = .initBuffer(&libc_impl_flags_buf);
 
     const recomp_step = b.step("recomp", "Build and run `recomp`");
 
@@ -44,10 +48,10 @@ pub fn build(b: *std.Build) void {
         "Dump actual disassembly when dumping C code (default: false)",
     ) orelse false;
 
-    switch (version) {
-        .@"5.3" => bins.appendSliceAssumeCapacity(&ido_53_tc),
-        .@"7.1" => bins.appendSliceAssumeCapacity(&ido_71_tc),
-    }
+    bins.appendSliceAssumeCapacity(switch (version) {
+        .@"5.3" => &ido_53_tc,
+        .@"7.1" => &ido_71_tc,
+    });
 
     const ido_version_str: []const u8 = switch (version) {
         .@"5.3" => "53",
@@ -59,7 +63,7 @@ pub fn build(b: *std.Build) void {
 
     const ido_root = ido_dep.path(".");
     const irix_root = ido_dep.path("ido");
-    const irix_usr_dir = irix_root.path(b, b.fmt("{s}/usr", .{@tagName(version)}));
+    const irix_usr_dir = irix_root.path(b, b.fmt("{t}/usr", .{version}));
 
     const rabbitizer_dep = b.dependency("rabbitizer", .{
         .target = target,
@@ -119,7 +123,7 @@ pub fn build(b: *std.Build) void {
 
     recomp_exe.addCSourceFile(.{
         .file = ido_dep.path("recomp.cpp"),
-        .flags = recomp_exe_flags.constSlice(),
+        .flags = recomp_exe_flags.items,
     });
 
     recomp_exe.linkLibrary(rabbitizer_artifact);
@@ -135,12 +139,7 @@ pub fn build(b: *std.Build) void {
 
     recomp_step.dependOn(&recomp_run.step);
 
-    libc_impl_flags.appendSliceAssumeCapacity(&c_flags);
-    libc_impl_flags.appendSliceAssumeCapacity(&warnings);
-    libc_impl_flags.appendSliceAssumeCapacity(&.{
-        "-Wno-unused-parameter",
-        "-Wno-deprecated-declarations",
-    });
+    libc_impl_flags.appendSliceAssumeCapacity(&(c_flags ++ libc_warnings));
 
     libc_impl_flags.appendSliceAssumeCapacity(switch (optimize) {
         .Debug => &debug_opt_flags,
@@ -160,7 +159,7 @@ pub fn build(b: *std.Build) void {
 
     libc_impl_53_obj.addCSourceFile(.{
         .file = ido_root.path(b, "libc_impl.c"),
-        .flags = libc_impl_flags.constSlice(),
+        .flags = libc_impl_flags.items,
     });
 
     libc_impl_53_obj.root_module.addCMacro("IDO53", "");
@@ -178,7 +177,7 @@ pub fn build(b: *std.Build) void {
 
     libc_impl_71_obj.addCSourceFile(.{
         .file = ido_root.path(b, "libc_impl.c"),
-        .flags = libc_impl_flags.constSlice(),
+        .flags = libc_impl_flags.items,
     });
 
     libc_impl_71_obj.root_module.addCMacro("IDO71", "");
@@ -226,7 +225,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    for (bins.constSlice()) |bin| {
+    for (bins.items) |bin| {
         const recomp_cmd = b.addRunArtifact(recomp_exe);
         recomp_cmd.step.dependOn(&recomp_install_cmd.step);
 
@@ -258,9 +257,9 @@ pub fn build(b: *std.Build) void {
                 switch (version) {
                     .@"5.3" => libc_impl_53_obj,
                     .@"7.1" => if (std.mem.eql(u8, name, "edgcpfe"))
-                        libc_impl_53_obj
-                    else
-                        libc_impl_71_obj,
+                            libc_impl_53_obj
+                        else
+                            libc_impl_71_obj,
                 },
             },
         });
@@ -393,6 +392,11 @@ const warnings = [_][]const u8{
     "-Wextra",
     "-Wpedantic",
     "-Wshadow",
+};
+
+const libc_warnings = warnings ++ .{
+    "-Wno-unused-parameter",
+    "-Wno-deprecated-declarations",
 };
 
 const cpp_flags = [_][]const u8{
